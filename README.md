@@ -18,22 +18,77 @@ git clone https://github.com/lunaaispace-eng/ComfyUI-DeGrid
 No dependencies beyond torch (no OpenGL/GLFW — works headless). Restart ComfyUI
 and search for **degrid**.
 
-## Usage
+## Quick start
 
-Wire it directly after **VAE Decode**, before any sharpening, deconvolution, or
-upscaling (sharpening first would amplify the grid before removal).
+1. Wire **VAE Decode → VAE DeGrid → (everything else)**. It must sit *before*
+   any sharpening, deconvolution, or upscaling — those amplify the grid, so
+   remove it first.
+2. Leave the defaults. `auto` mode measures each image and calibrates itself.
+3. Run once. The node displays a status line, e.g.:
 
-| Widget | Default | Meaning |
+   ```
+   grid ≈ 2.10/255 — removed (limit 0.019 auto) · edges protected: 1.2%
+   ```
+
+   That readout is your confirmation it worked — you don't need to pixel-peep.
+
+## Settings
+
+| Widget | Default | What it does |
 |---|---|---|
-| `enabled` | on | off = clean pass-through, for quick A/B |
-| `mode` | `auto` | auto: measures the grid amplitude per image and sets the correction limit itself; `manual`: uses the `limit` widget |
-| `limit` | 0.02 | manual mode only — max correction amplitude (0–1 scale); the VAE grid is typically 0.005–0.02 |
-| `grid_gain` | 10 | amplification of the `removed_grid` debug output |
+| `enabled` | on | Off = the image passes through completely untouched. Flip it for a quick A/B comparison. |
+| `mode` | `auto` | **auto (recommended):** measures the grid strength per image and sets the removal limit itself — nothing to tune, adapts to different VAEs and content. **manual:** uses the `limit` widget instead. Only switch if auto visibly under- or over-corrects. |
+| `limit` | 0.02 | **Manual mode only** (ignored in auto). Maximum per-pixel correction on the 0–1 scale. The VAE grid is usually 0.005–0.02. Too low → grid partially survives in contrasty areas. Too high → fine 2–3px texture (skin pores, fabric weave) gets slightly softened. |
+| `grid_gain` | 10 | Brightness amplification of the `removed_grid` preview **only** — never affects the cleaned image. Raise it if the preview looks like flat gray. |
+| `grid_view` | `4x zoom` | Framing of the `removed_grid` preview. `full frame` shows the whole image (reads as gray noise at preview size — see below). `4x zoom` / `8x zoom` show a magnified center crop where the actual 2px lattice is visible. Preview only; the cleaned image is never cropped. |
 
-Outputs: the cleaned **image**, plus **removed_grid** — the subtracted
-component, amplified and centered on gray. Preview it to verify: a uniform fine
-grid means it is working; visible faces or fabric detail means the limit is too
-high (manual mode, lower `limit`).
+### Status line
+
+After each run the node shows what it measured:
+
+- **`grid ≈ X/255`** — the estimated artifact amplitude. The raw Qwen-VAE grid
+  is typically 1–5/255. Below ~0.5/255 the node reports the image as already
+  clean (the filter then changes almost nothing — that's correct).
+- **`limit N (auto|manual)`** — the correction cap that was applied.
+- **`edges protected: N%`** — percentage of pixels where the correction hit the
+  cap. Those are real edges/detail being passed through unsoftened. A few
+  percent is normal; a very high number means lots of legitimate
+  high-frequency content (or a manual limit set too low).
+
+## Reading the removed_grid preview
+
+**"It's just gray noise — is it even doing anything?"** Yes. That is exactly
+what success looks like, and here is why: the artifact is a 2-pixel pattern.
+A node preview shows a 1728px image at a few hundred pixels wide, so a 2px
+lattice is far below what the thumbnail can render — it aliases into uniform
+gray "noise". The information is real; the zoom level just can't show it.
+
+Two ways to actually see it:
+
+- Set `grid_view` to `4x zoom` or `8x zoom` (default is 4x): the preview
+  becomes a magnified center crop and the regular lattice pattern is plainly
+  visible.
+- Or open the preview image at 100%+ zoom.
+
+What to look for:
+
+| removed_grid shows | Meaning |
+|---|---|
+| Uniform fine grid / speckle, brighter over textured areas | Working correctly |
+| Nearly flat gray | Little or no grid in this image (check the status line — likely `negligible`) |
+| Recognizable faces, fabric, edges | Limit too high — switch to manual and lower `limit` |
+
+A faint silhouette of the subject is normal (the artifact is slightly stronger
+over detailed areas). Recognizable *detail* is not.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Grid still visible in contrasty areas after filtering | `mode: manual`, raise `limit` toward 0.03–0.04 |
+| Fine texture (pores, weave) looks softened | `mode: manual`, lower `limit` toward 0.01 |
+| Status says `negligible` but you see a grid | The grid may be coming from a later node (sharpener, upscaler) — this node only fixes what the VAE decode produced. Check the chain order. |
+| removed_grid looks like flat gray | Raise `grid_gain`, or the image simply has no grid |
 
 ## How it works
 
