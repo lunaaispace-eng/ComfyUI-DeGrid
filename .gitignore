@@ -19,3 +19,5 @@ AGENTS.md
 .codex/
 SPEC.md
 BUILD.md
+# Agent scratch, deleted after use (see AGENTS.md).
+.work/
